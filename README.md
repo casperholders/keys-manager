@@ -21,10 +21,26 @@ You need the Rust toolchain to run the keys manager (or any other Casper smart c
 
 To compile the WASM file, use these commands:
 
+
+
 ```bash
- cd contract
- cargo build --release
+make prepare
+make build-contract
 ```
+### Optimize the Smart Contracts
+
+Install wasm-opt & wasm-strip
+
+To optimize the WASM file, use these commands:
+
+```bash
+# Optional
+wasm-opt -Oz -o contract/target/wasm32-unknown-unknown/release/keys-manager.wasm contract/target/wasm32-unknown-unknown/release/keys-manager.wasm
+# Optional
+wasm-strip contract/target/wasm32-unknown-unknown/release/keys-manager.wasm
+```
+
+End result should be a smart contract of 6,3K ! Yay :D 
 
 ### Prepare a local `nctl` network
 Set up [nctl](https://github.com/CasperLabs/casper-node/tree/master/utils/nctl) to interact and deploy to a local network.

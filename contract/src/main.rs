@@ -1,107 +1,58 @@
 #![no_main]
+#![no_std]
+
+extern crate alloc;
+
+use alloc::{vec::Vec};
 
 use casper_contract::{
-    contract_api::{account, runtime, storage},
+    contract_api::{account, runtime},
     unwrap_or_revert::UnwrapOrRevert,
 };
-use casper_types::{
-    account::{
-        AccountHash, ActionType, AddKeyFailure, RemoveKeyFailure, SetThresholdFailure,
-        UpdateKeyFailure, Weight,
-    },
-    CLType, EntryPoint, EntryPointAccess, EntryPointType, EntryPoints, Parameter, PublicKey,
-};
+use casper_types::{account::{
+    AccountHash, ActionType, AddKeyFailure, RemoveKeyFailure, SetThresholdFailure,
+    UpdateKeyFailure, Weight,
+}, ApiError};
 
 mod errors;
 use errors::Error;
 
-pub const ARG_ACCOUNT: &str = "account";
-pub const ARG_WEIGHT: &str = "weight";
 pub const ARG_ACCOUNTS: &str = "accounts";
 pub const ARG_WEIGHTS: &str = "weights";
-pub const ARG_DEPLOYMENT_THRESHOLD: &str = "deployment_thereshold";
+pub const ARG_DEPLOYMENT_THRESHOLD: &str = "deployment_threshold";
 pub const ARG_KEY_MANAGEMENT_THRESHOLD: &str = "key_management_threshold";
 
 #[no_mangle]
-pub extern "C" fn set_key_weight() {
-    let key: PublicKey = runtime::get_named_arg(ARG_ACCOUNT);
-    let weight: Weight = Weight::new(runtime::get_named_arg(ARG_WEIGHT));
-    update_key_weight(key.to_account_hash(), weight);
-}
-
-#[no_mangle]
-pub extern "C" fn set_deployment_threshold() {
-    let threshold: Weight = Weight::new(runtime::get_named_arg(ARG_WEIGHT));
-    let res = set_threshold(ActionType::Deployment, threshold);
-    res.unwrap_or_revert()
-}
-
-#[no_mangle]
-pub extern "C" fn set_key_management_threshold() {
-    let threshold: Weight = Weight::new(runtime::get_named_arg(ARG_WEIGHT));
-    let res = set_threshold(ActionType::KeyManagement, threshold);
-    res.unwrap_or_revert()
-}
-
-#[no_mangle]
-pub extern "C" fn set_all() {
-    let deployment_thereshold: Weight =
-        Weight::new(runtime::get_named_arg(ARG_DEPLOYMENT_THRESHOLD));
-    let key_management_threshold: Weight =
-        Weight::new(runtime::get_named_arg(ARG_KEY_MANAGEMENT_THRESHOLD));
-    let accounts: Vec<PublicKey> = runtime::get_named_arg(ARG_ACCOUNTS);
-    let weights: Vec<Weight> = runtime::get_named_arg(ARG_WEIGHTS);
-
-    for (account, weight) in accounts.into_iter().zip(weights) {
-        update_key_weight(account.to_account_hash(), weight);
-    }
-    set_threshold(ActionType::KeyManagement, key_management_threshold).unwrap_or_revert();
-    set_threshold(ActionType::Deployment, deployment_thereshold).unwrap_or_revert();
-}
-
-#[no_mangle]
 pub extern "C" fn call() {
-    let mut entry_points = EntryPoints::new();
-    entry_points.add_entry_point(EntryPoint::new(
-        String::from("set_key_weight"),
-        vec![
-            Parameter::new(ARG_ACCOUNT, CLType::PublicKey),
-            Parameter::new(ARG_WEIGHT, CLType::U8),
-        ],
-        CLType::Unit,
-        EntryPointAccess::Public,
-        EntryPointType::Session,
-    ));
-    entry_points.add_entry_point(EntryPoint::new(
-        String::from("set_deployment_threshold"),
-        vec![Parameter::new(ARG_WEIGHT, CLType::U8)],
-        CLType::Unit,
-        EntryPointAccess::Public,
-        EntryPointType::Session,
-    ));
-    entry_points.add_entry_point(EntryPoint::new(
-        String::from("set_key_management_threshold"),
-        vec![Parameter::new(ARG_WEIGHT, CLType::U8)],
-        CLType::Unit,
-        EntryPointAccess::Public,
-        EntryPointType::Session,
-    ));
-    entry_points.add_entry_point(EntryPoint::new(
-        String::from("set_all"),
-        vec![
-            Parameter::new(ARG_DEPLOYMENT_THRESHOLD, CLType::U8),
-            Parameter::new(ARG_KEY_MANAGEMENT_THRESHOLD, CLType::U8),
-            Parameter::new(ARG_ACCOUNTS, CLType::List(Box::new(CLType::PublicKey))),
-            Parameter::new(ARG_WEIGHTS, CLType::List(Box::new(CLType::U8))),
-        ],
-        CLType::Unit,
-        EntryPointAccess::Public,
-        EntryPointType::Session,
-    ));
+    let deployment_threshold_arg:Option<u8> = runtime::get_named_arg(ARG_DEPLOYMENT_THRESHOLD);
+    let key_management_threshold_arg:Option<u8>  = runtime::get_named_arg(ARG_KEY_MANAGEMENT_THRESHOLD);
+    let accounts_arg:Option<Vec<AccountHash>>  = runtime::get_named_arg(ARG_ACCOUNTS);
+    let weights_arg:Option<Vec<Weight>>  = runtime::get_named_arg(ARG_WEIGHTS);
 
-    let (contract_hash, _) = storage::new_locked_contract(entry_points, None, None, None);
-    runtime::put_key("keys_manager", contract_hash.into());
-    runtime::put_key("keys_manager_hash", storage::new_uref(contract_hash).into());
+    if deployment_threshold_arg == None && key_management_threshold_arg == None && (accounts_arg == None || weights_arg == None) {
+        runtime::revert(ApiError::MissingArgument)
+    }
+
+    if accounts_arg.is_some() && weights_arg.is_some() {
+        let accounts: Vec<AccountHash> = accounts_arg.unwrap();
+        let weights: Vec<Weight> = weights_arg.unwrap();
+
+        for (account, weight) in accounts.into_iter().zip(weights) {
+            update_key_weight(account, weight);
+        }
+    }
+
+    if deployment_threshold_arg.is_some() {
+        let deployment_threshold: Weight =
+            Weight::new(deployment_threshold_arg.unwrap());
+        set_threshold(ActionType::Deployment, deployment_threshold).unwrap_or_revert();
+    }
+
+    if key_management_threshold_arg.is_some() {
+        let key_management_threshold: Weight =
+            Weight::new(key_management_threshold_arg.unwrap());
+        set_threshold(ActionType::KeyManagement, key_management_threshold).unwrap_or_revert();
+    }
 }
 
 fn update_key_weight(account: AccountHash, weight: Weight) {
